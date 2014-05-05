@@ -1,0 +1,169 @@
+function [ ] = SimplePendulum
+    clc;
+    alpha = 0.1;
+    epsilon = 0.2;
+    gamma =0.9;
+    fid = fopen('SimplePendulum.log', 'w+');   
+    fid1 = fopen('QValues.log', 'w+');
+    %Specifying angle dimensions
+    angles = 0:359;
+    %Discrete measure of torque values
+    actions = 5;
+    %Maximum number of steps per episode
+    step_count = 360;
+    episodes_counter = 0;
+    %Maximum number of steps to reach convergence
+    max_num_episodes = 600;
+    %Start state location
+    start_state = [270,0];
+    %Goal state location
+    goal_state = [90,0];
+    x_len = size(angles);
+
+    actual_states = transpose(angles);
+    actual_states(:,2) = zeros;
+
+    %Stores episodic reward values for plotting. Rewards initialized to zero
+    all_rewards = zeros(max_num_episodes,2);
+    %Initialize random Q values
+    Q = rand(x_len(2),actions);
+    %Holds Q values at the end of the previous episode
+    oldQ = Q;
+
+    while(1)
+        st = start_state;
+        %Representing state with linear index equivalent.
+        sti = start_state(1) - 1; 
+        goal_hit_count = 0;
+        rew = 0;
+        prev_state = [0,0];
+        fprintf(fid, '%s \t', num2str(start_state));
+        for step = 1:step_count,
+            %Greedy actoin selection
+            [dummy,at] = max(Q(sti,:));
+            %Choosing random action 10pc of the time
+            if( rand  < epsilon)
+                tmp = randperm(actions);
+                at = tmp(1);
+            end
+            %Call Reward function to calculate reward and the next state.
+            [rew,next_stp] = RewardFn(st, at, goal_state, rew);
+                
+            fprintf(fid, '%s \t', num2str(next_stp));
+            %Represent next step with linear index equivalent
+            next_stpi = next_stp(1) + 1;
+
+            actual_states(next_stpi, :) = next_stp;
+
+            % Compute error value
+            error =  rew + gamma*max(Q(next_stpi,:)) - Q(sti,at); 
+            %Compute new Q value
+            Q(sti,at) = Q(sti,at) + alpha*( error );    
+            
+            %Break if pendulum is inverted and balanced 
+            if((next_stp(1) == goal_state(1)) && (next_stp(2) == goal_state(2)))                
+                if(prev_state(1) == goal_state(1) && prev_state(1) == goal_state(1))
+                    goal_hit_count = goal_hit_count + 1;
+                end                    
+                if(goal_hit_count == 6)
+                    rew = 1;
+                    break;
+                else              
+                    rew = 0;
+                end;                
+            else
+                rew = 0;
+            end
+
+            %Move to the next step calculated
+            prev_state = st;
+            st = next_stp;
+            sti = next_stpi;     
+        end
+        fprintf(fid, '\n');
+        episodes_counter = episodes_counter + 1;
+        all_rewards(episodes_counter, :) = [episodes_counter, rew];
+
+        %Convergece test. Compares the previous Q value array with the current
+        %one. Breaks and exits loop if the variance is less than 0.001
+        temp = abs(Q-oldQ);
+        for k= 1:360
+            fprintf(fid1, '%s \t', num2str(Q(k,:)));
+        end
+        fprintf(fid1, '\n');
+        
+        if(all(temp<0.01))
+            break;
+        end
+
+        if(episodes_counter == max_num_episodes)
+            break;
+        end
+        oldQ = Q;
+    end
+    %Prints Episodes vs Reward per episode value on the command window
+    disp(all_rewards);
+    disp(actual_states);
+
+    %Prints a bar plot of episodes vs reward per episode. Bar plot was chosen
+    %as episodes in our case are either 0 or 10.
+    figure();
+    bar(all_rewards(:,2));    
+    fclose(fid);
+    fclose(fid1);
+end
+
+
+function [rew,next_stp] = RewardFn(st,at,goal_state, rew)
+    %Acceleration due to gravity
+    g = 10;
+    Ang_Acc = round(g*cos(deg2rad(st(1))));
+    %Case if state is not windy state
+    switch at
+         case 1,
+             Ang_Acc = Ang_Acc + 2;
+         case 2,
+             Ang_Acc = Ang_Acc + 4;
+        case 3,
+             Ang_Acc = Ang_Acc - 2;
+        case 4,
+             Ang_Acc = Ang_Acc - 4;
+         case 5,%Torque = 0
+             Ang_Acc = Ang_Acc + 0;
+         otherwise
+             Error(sprintf('Illegal action')); 
+    end
+
+    next_stp = [st(1) + (2 * Ang_Acc) + st(2), st(2) + Ang_Acc];
+
+    next_stp(1) = round(next_stp(1));
+    
+    
+    if( next_stp(1) < 0 || next_stp(1) > 359)
+        next_stp(1) = mod(next_stp(1), 360);
+    end
+    
+   
+    %Reward of 10 if the goal is reached else 0 reward    
+    if(next_stp == goal_state)
+        rew = 10;
+    end
+    if(next_stp(1) == goal_state(1) && next_stp(2) ~= goal_state(2))
+        rew = 9;
+    end
+    if(((next_stp(1) == goal_state(1) - 1) || (next_stp(1) == goal_state(1) + 1)) && (next_stp(2) < 5 && next_stp(2) > -5))
+        rew = 8;
+    end
+    if(((next_stp(1) == goal_state(1) - 2) || (next_stp(1) == goal_state(1) + 2)) && (next_stp(2) < 5 && next_stp(2) > -5))
+        rew = 6;
+    end
+    if(((next_stp(1) == goal_state(1) - 3) || (next_stp(1) == goal_state(1) + 3)) && (next_stp(2) < 5 && next_stp(2) > -5))
+        rew = 4;
+    end
+    if(((next_stp(1) == goal_state(1) - 4) || (next_stp(1) == goal_state(1) + 4)) && (next_stp(2) < 5 && next_stp(2) > -5))
+        rew = 2;
+    end
+    if(((next_stp(1) == goal_state(1) - 5) || (next_stp(1) == goal_state(1) + 5)) && (next_stp(2) < 5 && next_stp(2) > -5))
+        rew = 1;
+    end
+end
